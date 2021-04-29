@@ -65,6 +65,7 @@ function newLocalId() {
  * @property {string} username
  * @property {Object<string,boolean>} permissions
  * @property {Object<string,any>} status
+ * @property {Object<string,Object<string,boolean>>} down
  */
 
 /**
@@ -346,6 +347,7 @@ ServerConnection.prototype.connect = async function(url) {
                         username: m.username,
                         permissions: m.permissions || {},
                         status: m.status || {},
+                        down: {},
                     };
                     break;
                 case 'change':
@@ -355,6 +357,7 @@ ServerConnection.prototype.connect = async function(url) {
                             username: m.username,
                             permissions: m.permissions || {},
                             status: m.status || {},
+                            down: {},
                         };
                     } else {
                         sc.users[m.id].username = m.username;
@@ -673,6 +676,7 @@ ServerConnection.prototype.gotOffer = async function(id, label, source, username
 
         c.pc.ontrack = function(e) {
             c.stream = e.streams[0];
+            recomputeUserStreams(sc, source, c);
             if(c.ondowntrack) {
                 c.ondowntrack.call(
                     c, e.track, e.transceiver, e.streams[0],
@@ -1020,12 +1024,49 @@ Stream.prototype.close = function(replace) {
             delete(c.sc.down[c.id]);
         else
             console.warn('Closing unknown stream');
+        recomputeUserStreams(c.sc, c.source);
     }
     c.sc = null;
 
     if(c.onclose)
         c.onclose.call(c, replace);
 };
+
+/**
+ * @param {ServerConnection} sc
+ * @param {string} id
+ * @param {Stream} [c]
+ */
+function recomputeUserStreams(sc, id, c) {
+    let user = sc.users[id];
+    if(!user) {
+        console.warn("recomputing streams for unknown user");
+        return;
+    }
+
+    if(c) {
+        if(!user.down[c.label])
+            user.down[c.label] = {};
+        c.stream.getTracks().forEach(t => {
+            user.down[c.label][t.kind] = true;
+        });
+        return;
+    }
+
+    if(!user.down || Object.keys(user.down).length === 0)
+        return;
+
+    user.down = {};
+
+    for(id in sc.down) {
+        let c = sc.down[id];
+        if(!user.down[c.label])
+            user.down[c.label] = {};
+        c.stream.getTracks().forEach(t => {
+            user.down[c.label][t.kind] = true;
+        });
+    }
+}
 
 /**
  * abort requests that the server close a down stream.
